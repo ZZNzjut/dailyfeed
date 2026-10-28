@@ -1,0 +1,39 @@
+name: daily-digest
+
+on:
+  schedule:
+    # 每天 01:00 UTC，即北京时间 09:00
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run DailyFeed
+        env:
+          DAILYFEED_SOURCE: search
+          DAILYFEED_SEARCH_PROVIDER: ${{ vars.DAILYFEED_SEARCH_PROVIDER || 'duckduckgo' }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          DAILYFEED_OUTPUT_DIR: digests
+          DAILYFEED_DB: state/dailyfeed.db
+          DAILYFEED_LLM: ${{ vars.DAILYFEED_LLM || 'mock' }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+        run: python -m dailyfeed run --topics "AI,Agent,开源,工程"
+
+      - name: Commit digest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add digests/ state/
+          git diff --cached --quiet || git commit -m "chore: daily digest $(date +%F)"
+          git push
