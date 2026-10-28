@@ -1,0 +1,2 @@
+# 只有 DAILYFEED_BUS=redis 时才需要
+redis>=5.0
