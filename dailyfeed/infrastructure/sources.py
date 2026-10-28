@@ -271,6 +271,12 @@ class SearchSource:
         params = urllib.parse.parse_qs(parsed.query)
         return params.get("uddg", [href])[0]
 
+    @staticmethod
+    def _is_ddg_ad_or_redirect(url: str) -> bool:
+        """过滤 DuckDuckGo 广告（y.js 跳转）与未能还原真实地址的站内链接。"""
+        host = urllib.parse.urlparse(url).hostname or ""
+        return host.endswith("duckduckgo.com")
+
     def _search_duckduckgo(self, query: str, limit: int) -> list[Article]:
         url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
         request = urllib.request.Request(url, headers={"User-Agent": self.DDG_UA})
@@ -279,15 +285,20 @@ class SearchSource:
         links = self._LINK_RE.findall(raw)
         snippets = self._SNIPPET_RE.findall(raw)
         articles = []
-        for index, (href, title) in enumerate(links[:limit]):
+        for index, (href, title) in enumerate(links):
+            real_url = self._unwrap_ddg_url(href)
+            if self._is_ddg_ad_or_redirect(real_url):
+                continue
             articles.append(
                 Article(
                     title=_strip_html(title),
-                    url=self._unwrap_ddg_url(href),
+                    url=real_url,
                     source="duckduckgo",
                     content=_strip_html(snippets[index]) if index < len(snippets) else "",
                 )
             )
+            if len(articles) >= limit:
+                break
         return articles
 
     async def fetch(self, topics: list[str], limit: int) -> list[Article]:
