@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import re
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -219,10 +221,103 @@ class RssSource:
         return list(unique.values())[:limit]
 
 
+class SearchSource:
+    """联网搜索数据源：每个订阅方向作为一条查询，抓取搜索结果作为文章。
+
+    支持两种提供者：
+    - tavily：Tavily Search API，结果带正文摘要，需要 TAVILY_API_KEY
+    - duckduckgo：抓取 DuckDuckGo HTML 结果页，零依赖零密钥，可用性随目标站点变化
+    """
+
+    DDG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    _LINK_RE = re.compile(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', re.S)
+    _SNIPPET_RE = re.compile(r'class="result__snippet"[^>]*>(.*?)</a>', re.S)
+
+    def __init__(self, provider: str = "duckduckgo", api_key: str = "") -> None:
+        self._provider = provider
+        self._api_key = api_key
+
+    def _search_tavily(self, query: str, limit: int) -> list[Article]:
+        payload = json.dumps(
+            {"api_key": self._api_key, "query": query, "max_results": limit}
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            "https://api.tavily.com/search",
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "DailyFeed/0.1"},
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read())
+        articles = []
+        for item in data.get("results", []):
+            title = (item.get("title") or "").strip()
+            url = (item.get("url") or "").strip()
+            if title and url:
+                articles.append(
+                    Article(
+                        title=title,
+                        url=url,
+                        source="tavily",
+                        content=_strip_html(item.get("content", "")),
+                    )
+                )
+        return articles
+
+    @staticmethod
+    def _unwrap_ddg_url(href: str) -> str:
+        if href.startswith("//"):
+            href = "https:" + href
+        parsed = urllib.parse.urlparse(href)
+        params = urllib.parse.parse_qs(parsed.query)
+        return params.get("uddg", [href])[0]
+
+    def _search_duckduckgo(self, query: str, limit: int) -> list[Article]:
+        url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
+        request = urllib.request.Request(url, headers={"User-Agent": self.DDG_UA})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8", "ignore")
+        links = self._LINK_RE.findall(raw)
+        snippets = self._SNIPPET_RE.findall(raw)
+        articles = []
+        for index, (href, title) in enumerate(links[:limit]):
+            articles.append(
+                Article(
+                    title=_strip_html(title),
+                    url=self._unwrap_ddg_url(href),
+                    source="duckduckgo",
+                    content=_strip_html(snippets[index]) if index < len(snippets) else "",
+                )
+            )
+        return articles
+
+    async def fetch(self, topics: list[str], limit: int) -> list[Article]:
+        queries = topics or ["AI 最新资讯"]
+        per_query = max(2, limit // len(queries))
+        collected: list[Article] = []
+        for query in queries:
+            try:
+                if self._provider == "tavily":
+                    articles = await asyncio.to_thread(self._search_tavily, query, per_query)
+                else:
+                    articles = await asyncio.to_thread(self._search_duckduckgo, query, per_query)
+            except Exception:
+                continue
+            collected.extend(articles)
+        unique: dict[str, Article] = {}
+        for article in collected:
+            unique.setdefault(article.id, article)
+        return list(unique.values())[:limit]
+
+
 def build_source(settings: Settings, override: str | None = None):
     name = (override or settings.source).lower()
     if name == "rss":
         if not settings.rss_feeds:
             raise ValueError("RSS 模式需要配置 DAILYFEED_RSS_FEEDS，多个地址用英文逗号分隔")
         return RssSource(settings.rss_feeds)
+    if name == "search":
+        provider = settings.search_provider
+        if provider == "tavily" and not settings.tavily_api_key:
+            raise ValueError("Tavily 搜索需要配置 TAVILY_API_KEY；不配置时可用 DAILYFEED_SEARCH_PROVIDER=duckduckgo")
+        return SearchSource(provider=provider, api_key=settings.tavily_api_key)
     return MockSource()

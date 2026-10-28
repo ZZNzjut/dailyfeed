@@ -44,6 +44,9 @@ class Settings:
 
     rss_feeds: list[str] = field(default_factory=list)
 
+    search_provider: str = "duckduckgo"
+    tavily_api_key: str = ""
+
     smtp_host: str = ""
     smtp_port: int = 465
     smtp_user: str = ""
@@ -75,6 +78,8 @@ class Settings:
             chat_model=_env("DASHSCOPE_CHAT_MODEL", "qwen-plus"),
             embedding_model=_env("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v3"),
             rss_feeds=feeds,
+            search_provider=_env("DAILYFEED_SEARCH_PROVIDER", "duckduckgo").lower(),
+            tavily_api_key=_env("TAVILY_API_KEY", ""),
             smtp_host=_env("SMTP_HOST", ""),
             smtp_port=int(_env("SMTP_PORT", "465")),
             smtp_user=_env("SMTP_USER", ""),

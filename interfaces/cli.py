@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run = subparsers.add_parser("run", help="执行一次日报任务")
     run.add_argument("--topics", default="AI,Agent,开源", help="关注方向，英文逗号分隔")
-    run.add_argument("--source", choices=["mock", "rss"], help="覆盖数据源")
+    run.add_argument("--source", choices=["mock", "rss", "search"], help="覆盖数据源")
 
     stats = subparsers.add_parser("stats", help="查看指标")
     stats.add_argument("--db", help="数据库路径")

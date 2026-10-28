@@ -126,7 +126,9 @@ dailyfeed/
 | --- | --- | --- |
 | `DAILYFEED_LLM` | `mock` | `mock` / `dashscope` |
 | `DAILYFEED_BUS` | `memory` | `memory` / `redis` |
-| `DAILYFEED_SOURCE` | `mock` | `mock` / `rss` |
+| `DAILYFEED_SOURCE` | `mock` | `mock` / `rss` / `search` |
+| `DAILYFEED_SEARCH_PROVIDER` | `duckduckgo` | `duckduckgo` / `tavily` |
+| `TAVILY_API_KEY` | 空 | 使用 Tavily 搜索时必填 |
 | `DAILYFEED_DB` | `data/dailyfeed.db` | SQLite 路径 |
 | `DAILYFEED_OUTPUT_DIR` | `data/digests` | 日报输出目录 |
 | `DAILYFEED_MAX_ARTICLES` | `20` | 单次最多采集条数 |
@@ -156,6 +158,24 @@ python -m dailyfeed run
 ```
 
 当前实现仍由单进程消费，生产环境可以把每个 Agent 拆成独立 worker，共享同一个消费组。
+
+### 联网搜索
+
+```bash
+# 零依赖方式：DuckDuckGo 结果页抓取
+python -m dailyfeed run --source search --topics "AI,Agent,开源"
+
+# 或 Tavily Search API（结果带正文摘要，质量更高）
+export DAILYFEED_SEARCH_PROVIDER=tavily
+export TAVILY_API_KEY=tvly-xxxx
+python -m dailyfeed run --source search
+```
+
+每个订阅方向会作为一条搜索查询，搜索结果直接作为文章进入后续摘要与路由流程。注意 DuckDuckGo 抓取方式依赖其页面结构，可能随对方改版失效，也可用任意 RSS 源替代。
+
+### 每日自动运行（GitHub Actions）
+
+仓库内置 `.github/workflows/daily.yml`：每天北京时间 09:00 自动联网搜索并生成日报，把产物提交到 `digests/` 目录，SQLite 记忆库存放在 `state/`，因此跨天去重依然生效。也可以在 Actions 页面手动触发（workflow_dispatch）。可选 secrets：`TAVILY_API_KEY`、`DASHSCOPE_API_KEY` 配置后自动升级搜索与模型质量。
 
 ### 邮件推送
 
